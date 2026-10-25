@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Html5Qrcode } from "html5-qrcode";
 import { parseEMVQR, type ParsedEMV } from "@/lib/emv";
-import { Camera, X, ImagePlus } from "lucide-react";
+import { Camera, X, ImagePlus, Loader2 } from "lucide-react";
 
 interface Props {
   onScan: (parsed: ParsedEMV, raw: string) => void;
@@ -13,6 +13,7 @@ interface Props {
 export default function QRScanner({ onScan, onClose }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [mode, setMode] = useState<"camera" | "upload">("camera");
+  const [uploading, setUploading] = useState(false);
   const scannerRef = useRef<Html5Qrcode | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const started = useRef(false);
@@ -30,17 +31,23 @@ export default function QRScanner({ onScan, onClose }: Props) {
     started.current = true;
     setError(null);
 
+    let active = true;
     const scanner = new Html5Qrcode("qr-reader");
     scannerRef.current = scanner;
 
     scanner
       .start(
         { facingMode: "environment" },
-        { fps: 10, qrbox: { width: 260, height: 260 } },
+        { fps: 10, qrbox: { width: 250, height: 250 } },
         (decodedText) => {
+          if (!active) return;
           const parsed = parseEMVQR(decodedText);
           if (parsed) {
-            scanner.stop().then(() => onScan(parsed, decodedText));
+            active = false;
+            scanner
+              .stop()
+              .catch(() => {})
+              .finally(() => onScan(parsed, decodedText));
           } else {
             setError("এটি বৈধ Bangla QR নয়। অন্য QR স্ক্যান করুন।");
           }
@@ -48,12 +55,13 @@ export default function QRScanner({ onScan, onClose }: Props) {
         () => {}
       )
       .catch(() => {
-        setError(
-          "ক্যামেরা অ্যাক্সেস করা যাচ্ছে না। অনুমতি দিন অথবা ছবি আপলোড করুন।"
-        );
+        if (active) {
+          setError("ক্যামেরা চালু হয়নি। Upload ট্যাব থেকে ছবি দিন।");
+        }
       });
 
     return () => {
+      active = false;
       if (scannerRef.current?.isScanning) {
         scannerRef.current.stop().catch(() => {});
       }
@@ -66,15 +74,28 @@ export default function QRScanner({ onScan, onClose }: Props) {
     if (!file) return;
 
     setError(null);
+    setUploading(true);
+    e.target.value = "";
 
     try {
-      const scanner = new Html5Qrcode("qr-file-reader");
-      const decodedText = await scanner.scanFile(file, true);
+      const tempId = "qr-file-temp";
+      let el = document.getElementById(tempId);
+      if (!el) {
+        el = document.createElement("div");
+        el.id = tempId;
+        el.style.display = "none";
+        document.body.appendChild(el);
+      }
+
+      const scanner = new Html5Qrcode(tempId);
+      const decodedText = await scanner.scanFile(file, false);
+
       try {
         await scanner.clear();
-      } catch {
-        /* ignore */
-      }
+      } catch {}
+      try {
+        el.remove();
+      } catch {}
 
       const parsed = parseEMVQR(decodedText);
       if (parsed) {
@@ -82,11 +103,14 @@ export default function QRScanner({ onScan, onClose }: Props) {
       } else {
         setError("এই ছবিতে বৈধ Bangla QR পাওয়া যায়নি।");
       }
-    } catch {
-      setError("ছবি থেকে QR পড়া যায়নি। পরিষ্কার ছবি দিন।");
+    } catch (err) {
+      console.error("File scan error:", err);
+      setError(
+        "ছবি থেকে QR পড়া যায়নি। পরিষ্কার, সোজা ছবি দিন (স্ক্রিনশট ভালো কাজ করে)।"
+      );
+    } finally {
+      setUploading(false);
     }
-
-    e.target.value = "";
   };
 
   return (
@@ -107,6 +131,7 @@ export default function QRScanner({ onScan, onClose }: Props) {
 
         <div className="flex gap-2 px-5 pt-4">
           <button
+            type="button"
             onClick={() => {
               setMode("camera");
               setError(null);
@@ -121,6 +146,7 @@ export default function QRScanner({ onScan, onClose }: Props) {
             Camera
           </button>
           <button
+            type="button"
             onClick={() => {
               setMode("upload");
               setError(null);
@@ -144,28 +170,37 @@ export default function QRScanner({ onScan, onClose }: Props) {
                 className="w-full rounded-2xl overflow-hidden bg-black/40 min-h-[240px]"
               />
               <p className="mt-4 text-xs text-slate-500 text-center leading-relaxed">
-                আপনার Dynamic Bangla QR কোডটি ক্যামেরার সামনে ধরুন
+                Dynamic Bangla QR ক্যামেরার সামনে ধরুন
               </p>
             </>
           ) : (
             <>
-              <div id="qr-file-reader" className="hidden" />
-
               <button
+                type="button"
+                disabled={uploading}
                 onClick={() => fileInputRef.current?.click()}
-                className="w-full min-h-[240px] rounded-2xl border-2 border-dashed border-white/15 hover:border-emerald-500/40 bg-white/5 flex flex-col items-center justify-center gap-3 transition"
+                className="w-full min-h-[240px] rounded-2xl border-2 border-dashed border-white/15 hover:border-emerald-500/40 bg-white/5 flex flex-col items-center justify-center gap-3 transition disabled:opacity-60"
               >
-                <div className="w-14 h-14 rounded-2xl bg-emerald-500/15 flex items-center justify-center">
-                  <ImagePlus className="w-7 h-7 text-emerald-400" />
-                </div>
-                <div className="text-center">
-                  <p className="text-sm font-medium text-white">
-                    QR ছবি সিলেক্ট করুন
-                  </p>
-                  <p className="text-xs text-slate-500 mt-1">
-                    PNG, JPG — গ্যালারি থেকে
-                  </p>
-                </div>
+                {uploading ? (
+                  <>
+                    <Loader2 className="w-8 h-8 text-emerald-400 animate-spin" />
+                    <p className="text-sm text-slate-300">পড়া হচ্ছে…</p>
+                  </>
+                ) : (
+                  <>
+                    <div className="w-14 h-14 rounded-2xl bg-emerald-500/15 flex items-center justify-center">
+                      <ImagePlus className="w-7 h-7 text-emerald-400" />
+                    </div>
+                    <div className="text-center px-4">
+                      <p className="text-sm font-medium text-white">
+                        QR ছবি সিলেক্ট করুন
+                      </p>
+                      <p className="text-xs text-slate-500 mt-1">
+                        স্ক্রিনশট বা গ্যালারির ছবি (PNG/JPG)
+                      </p>
+                    </div>
+                  </>
+                )}
               </button>
 
               <input
@@ -179,7 +214,9 @@ export default function QRScanner({ onScan, onClose }: Props) {
           )}
 
           {error && (
-            <p className="mt-4 text-sm text-red-400 text-center">{error}</p>
+            <p className="mt-4 text-sm text-red-400 text-center leading-relaxed">
+              {error}
+            </p>
           )}
         </div>
       </div>
