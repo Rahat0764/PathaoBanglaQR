@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Html5Qrcode } from "html5-qrcode";
 import { parseEMVQR, type ParsedEMV } from "@/lib/emv";
-import { Camera, X, ImagePlus, SwitchCamera } from "lucide-react";
+import { Camera, X, ImagePlus } from "lucide-react";
 
 interface Props {
   onScan: (parsed: ParsedEMV, raw: string) => void;
@@ -13,14 +13,12 @@ interface Props {
 export default function QRScanner({ onScan, onClose }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [mode, setMode] = useState<"camera" | "upload">("camera");
-  const [scanning, setScanning] = useState(false);
   const scannerRef = useRef<Html5Qrcode | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const started = useRef(false);
 
   useEffect(() => {
     if (mode !== "camera") {
-      // stop camera if switching away
       if (scannerRef.current?.isScanning) {
         scannerRef.current.stop().catch(() => {});
       }
@@ -31,7 +29,6 @@ export default function QRScanner({ onScan, onClose }: Props) {
     if (started.current) return;
     started.current = true;
     setError(null);
-    setScanning(true);
 
     const scanner = new Html5Qrcode("qr-reader");
     scannerRef.current = scanner;
@@ -51,8 +48,9 @@ export default function QRScanner({ onScan, onClose }: Props) {
         () => {}
       )
       .catch(() => {
-        setError("ক্যামেরা অ্যাক্সেস করা যাচ্ছে না। অনুমতি দিন অথবা ছবি আপলোড করুন।");
-        setScanning(false);
+        setError(
+          "ক্যামেরা অ্যাক্সেস করা যাচ্ছে না। অনুমতি দিন অথবা ছবি আপলোড করুন।"
+        );
       });
 
     return () => {
@@ -68,29 +66,26 @@ export default function QRScanner({ onScan, onClose }: Props) {
     if (!file) return;
 
     setError(null);
-    setScanning(true);
 
     try {
-      // Use a temporary scanner instance for file decode
       const scanner = new Html5Qrcode("qr-file-reader");
       const decodedText = await scanner.scanFile(file, true);
       try {
         await scanner.clear();
-      } catch {}
+      } catch {
+        /* ignore */
+      }
 
       const parsed = parseEMVQR(decodedText);
       if (parsed) {
         onScan(parsed, decodedText);
       } else {
         setError("এই ছবিতে বৈধ Bangla QR পাওয়া যায়নি।");
-        setScanning(false);
       }
     } catch {
       setError("ছবি থেকে QR পড়া যায়নি। পরিষ্কার ছবি দিন।");
-      setScanning(false);
     }
 
-    // reset input so same file can be re-selected
     e.target.value = "";
   };
 
@@ -110,7 +105,6 @@ export default function QRScanner({ onScan, onClose }: Props) {
           </button>
         </div>
 
-        {/* Mode tabs */}
         <div className="flex gap-2 px-5 pt-4">
           <button
             onClick={() => {
@@ -155,7 +149,6 @@ export default function QRScanner({ onScan, onClose }: Props) {
             </>
           ) : (
             <>
-              {/* Hidden element required by html5-qrcode for file scan */}
               <div id="qr-file-reader" className="hidden" />
 
               <button
@@ -179,7 +172,6 @@ export default function QRScanner({ onScan, onClose }: Props) {
                 ref={fileInputRef}
                 type="file"
                 accept="image/*"
-                capture={undefined}
                 className="hidden"
                 onChange={handleFile}
               />
