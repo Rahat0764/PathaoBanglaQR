@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import { Html5Qrcode } from "html5-qrcode";
 import { parseEMVQR, type ParsedEMV } from "@/lib/emv";
 import { Camera, X, ImagePlus, Loader2 } from "lucide-react";
@@ -14,103 +14,146 @@ export default function QRScanner({ onScan, onClose }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [mode, setMode] = useState<"camera" | "upload">("camera");
   const [uploading, setUploading] = useState(false);
+
   const scannerRef = useRef<Html5Qrcode | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const started = useRef(false);
+  const onScanRef = useRef(onScan);
+  const mountedRef = useRef(true);
 
   useEffect(() => {
-    if (mode !== "camera") {
-      if (scannerRef.current?.isScanning) {
-        scannerRef.current.stop().catch(() => {});
+    onScanRef.current = onScan;
+  }, [onScan]);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+
+  const stopCamera = useCallback(async () => {
+    const s = scannerRef.current;
+    scannerRef.current = null;
+    if (s) {
+      try {
+        if (s.isScanning) await s.stop();
+      } catch {
+        /* ignore */
       }
-      started.current = false;
-      return;
+      try {
+        await s.clear();
+      } catch {
+        /* ignore */
+      }
     }
+  }, []);
 
-    if (started.current) return;
-    started.current = true;
-    setError(null);
+  useEffect(() => {
+    if (mode !== "camera") return;
 
-    let active = true;
-    const scanner = new Html5Qrcode("qr-reader");
-    scannerRef.current = scanner;
+    let cancelled = false;
+    const elId = "qr-reader";
 
-    scanner
-      .start(
-        { facingMode: "environment" },
-        { fps: 10, qrbox: { width: 250, height: 250 } },
-        (decodedText) => {
-          if (!active) return;
-          const parsed = parseEMVQR(decodedText);
-          if (parsed) {
-            active = false;
-            scanner
-              .stop()
-              .catch(() => {})
-              .finally(() => onScan(parsed, decodedText));
-          } else {
-            setError("এটি বৈধ Bangla QR নয়। অন্য QR স্ক্যান করুন।");
-          }
-        },
-        () => {}
-      )
-      .catch(() => {
-        if (active) {
-          setError("ক্যামেরা চালু হয়নি। Upload ট্যাব থেকে ছবি দিন।");
+    const start = async () => {
+      await stopCamera();
+      if (cancelled || !mountedRef.current) return;
+
+      const el = document.getElementById(elId);
+      if (!el) return;
+
+      try {
+        const scanner = new Html5Qrcode(elId);
+        scannerRef.current = scanner;
+
+        await scanner.start(
+          { facingMode: "environment" },
+          { fps: 8, qrbox: { width: 240, height: 240 } },
+          (decodedText) => {
+            if (cancelled) return;
+            const parsed = parseEMVQR(decodedText);
+            if (parsed) {
+              cancelled = true;
+              stopCamera().finally(() => {
+                onScanRef.current(parsed, decodedText);
+              });
+            } else if (mountedRef.current) {
+              setError("এটি বৈধ Bangla QR নয়।");
+            }
+          },
+          () => {}
+        );
+      } catch {
+        if (mountedRef.current && !cancelled) {
+          setError("ক্যামেরা চালু হয়নি। Upload থেকে ছবি দিন।");
         }
-      });
+      }
+    };
+
+    const t = setTimeout(start, 150);
 
     return () => {
-      active = false;
-      if (scannerRef.current?.isScanning) {
-        scannerRef.current.stop().catch(() => {});
-      }
-      started.current = false;
+      cancelled = true;
+      clearTimeout(t);
+      stopCamera();
     };
-  }, [mode, onScan]);
+  }, [mode, stopCamera]);
 
   const handleFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
+    e.target.value = "";
     if (!file) return;
 
     setError(null);
     setUploading(true);
-    e.target.value = "";
 
     try {
-      const tempId = "qr-file-temp";
-      let el = document.getElementById(tempId);
-      if (!el) {
-        el = document.createElement("div");
-        el.id = tempId;
-        el.style.display = "none";
-        document.body.appendChild(el);
+      await stopCamera();
+
+      const tempId = "qr-upload-" + Date.now();
+      const el = document.createElement("div");
+      el.id = tempId;
+      el.style.cssText =
+        "position:fixed;left:-9999px;width:1px;height:1px;opacity:0;";
+      document.body.appendChild(el);
+
+      let decodedText = "";
+      try {
+        const scanner = new Html5Qrcode(tempId);
+        decodedText = await scanner.scanFile(file, false);
+        try {
+          await scanner.clear();
+        } catch {
+          /* ignore */
+        }
+      } finally {
+        try {
+          el.remove();
+        } catch {
+          /* ignore */
+        }
       }
 
-      const scanner = new Html5Qrcode(tempId);
-      const decodedText = await scanner.scanFile(file, false);
-
-      try {
-        await scanner.clear();
-      } catch {}
-      try {
-        el.remove();
-      } catch {}
+      if (!mountedRef.current) return;
 
       const parsed = parseEMVQR(decodedText);
       if (parsed) {
-        onScan(parsed, decodedText);
+        onScanRef.current(parsed, decodedText);
       } else {
         setError("এই ছবিতে বৈধ Bangla QR পাওয়া যায়নি।");
       }
     } catch (err) {
-      console.error("File scan error:", err);
-      setError(
-        "ছবি থেকে QR পড়া যায়নি। পরিষ্কার, সোজা ছবি দিন (স্ক্রিনশট ভালো কাজ করে)।"
-      );
+      console.error(err);
+      if (mountedRef.current) {
+        setError("ছবি পড়া যায়নি। QR স্পষ্ট দেখা যায় এমন স্ক্রিনশট দিন।");
+      }
     } finally {
-      setUploading(false);
+      if (mountedRef.current) setUploading(false);
     }
+  };
+
+  const switchMode = (m: "camera" | "upload") => {
+    setError(null);
+    setMode(m);
   };
 
   return (
@@ -122,6 +165,7 @@ export default function QRScanner({ onScan, onClose }: Props) {
             Scan QR Code
           </h3>
           <button
+            type="button"
             onClick={onClose}
             className="p-2 rounded-full hover:bg-white/10 text-slate-400 hover:text-white transition"
           >
@@ -132,10 +176,7 @@ export default function QRScanner({ onScan, onClose }: Props) {
         <div className="flex gap-2 px-5 pt-4">
           <button
             type="button"
-            onClick={() => {
-              setMode("camera");
-              setError(null);
-            }}
+            onClick={() => switchMode("camera")}
             className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-medium transition ${
               mode === "camera"
                 ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"
@@ -147,10 +188,7 @@ export default function QRScanner({ onScan, onClose }: Props) {
           </button>
           <button
             type="button"
-            onClick={() => {
-              setMode("upload");
-              setError(null);
-            }}
+            onClick={() => switchMode("upload")}
             className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-medium transition ${
               mode === "upload"
                 ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"
@@ -163,17 +201,17 @@ export default function QRScanner({ onScan, onClose }: Props) {
         </div>
 
         <div className="p-5">
-          {mode === "camera" ? (
-            <>
-              <div
-                id="qr-reader"
-                className="w-full rounded-2xl overflow-hidden bg-black/40 min-h-[240px]"
-              />
-              <p className="mt-4 text-xs text-slate-500 text-center leading-relaxed">
-                Dynamic Bangla QR ক্যামেরার সামনে ধরুন
-              </p>
-            </>
-          ) : (
+          <div className={mode === "camera" ? "block" : "hidden"}>
+            <div
+              id="qr-reader"
+              className="w-full rounded-2xl overflow-hidden bg-black/40 min-h-[240px]"
+            />
+            <p className="mt-4 text-xs text-slate-500 text-center">
+              Dynamic Bangla QR ক্যামেরার সামনে ধরুন
+            </p>
+          </div>
+
+          {mode === "upload" && (
             <>
               <button
                 type="button"
@@ -196,13 +234,12 @@ export default function QRScanner({ onScan, onClose }: Props) {
                         QR ছবি সিলেক্ট করুন
                       </p>
                       <p className="text-xs text-slate-500 mt-1">
-                        স্ক্রিনশট বা গ্যালারির ছবি (PNG/JPG)
+                        স্ক্রিনশট ভালো কাজ করে (PNG/JPG)
                       </p>
                     </div>
                   </>
                 )}
               </button>
-
               <input
                 ref={fileInputRef}
                 type="file"
