@@ -2,8 +2,9 @@ import type { Metadata, Viewport } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Bangla QR Generator",
+  title: "Bangla QR — made by Rahat",
   description: "Generate beautiful dynamic Bangla QR codes with custom amounts",
+  authors: [{ name: "Rahat", url: "https://www.linkedin.com/in/RahatAhmedX" }],
 };
 
 export const viewport: Viewport = {
