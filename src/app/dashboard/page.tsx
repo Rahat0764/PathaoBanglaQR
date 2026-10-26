@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
-import { parseEMVQR, type ParsedEMV } from "@/lib/emv";
+import { parseEMVQR, randomBillNo, type ParsedEMV } from "@/lib/emv";
 import QRScanner from "@/components/QRScanner";
 import QRGenerator from "@/components/QRGenerator";
 import {
@@ -13,6 +13,8 @@ import {
   ScanLine,
   RefreshCw,
   Wallet,
+  EyeOff,
+  Shuffle,
 } from "lucide-react";
 import type { User as SupabaseUser } from "@supabase/supabase-js";
 
@@ -33,6 +35,9 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [generated, setGenerated] = useState(false);
+  const [hideBalance, setHideBalance] = useState(false);
+  const [useRandomBill, setUseRandomBill] = useState(false);
+  const [billNumber, setBillNumber] = useState("");
 
   const router = useRouter();
   const supabase = createClient();
@@ -48,7 +53,10 @@ export default function DashboardPage() {
       if (data) {
         setProfile(data);
         const parsed = parseEMVQR(data.raw_template);
-        if (parsed) setTemplate(parsed);
+        if (parsed) {
+          setTemplate(parsed);
+          setBillNumber(parsed.billNumber || randomBillNo(10));
+        }
       }
       setLoading(false);
     },
@@ -66,38 +74,42 @@ export default function DashboardPage() {
     });
   }, [router, supabase.auth, loadProfile]);
 
-  const handleScan = async (parsed: ParsedEMV, raw: string) => {
-    setShowScanner(false);
-    if (!user) return;
+  const handleScan = useCallback(
+    async (parsed: ParsedEMV, raw: string) => {
+      setShowScanner(false);
+      if (!user) return;
 
-    setSaving(true);
-    const payload = {
-      user_id: user.id,
-      merchant_name: parsed.merchantName,
-      merchant_city: parsed.merchantCity,
-      account_number: parsed.accountNumber || "",
-      mcc: parsed.mcc,
-      currency: parsed.currency,
-      country: parsed.country,
-      raw_template: raw,
-      updated_at: new Date().toISOString(),
-    };
+      setSaving(true);
+      const payload = {
+        user_id: user.id,
+        merchant_name: parsed.merchantName,
+        merchant_city: parsed.merchantCity,
+        account_number: parsed.accountNumber || "",
+        mcc: parsed.mcc,
+        currency: parsed.currency,
+        country: parsed.country,
+        raw_template: raw,
+        updated_at: new Date().toISOString(),
+      };
 
-    const { data, error } = await supabase
-      .from("profiles")
-      .upsert(payload, { onConflict: "user_id" })
-      .select()
-      .single();
+      const { data, error } = await supabase
+        .from("profiles")
+        .upsert(payload, { onConflict: "user_id" })
+        .select()
+        .single();
 
-    if (!error && data) {
-      setProfile(data);
-      setTemplate(parsed);
-      setGenerated(false);
-    } else {
-      alert("প্রোফাইল সেভ করতে সমস্যা: " + (error?.message || "Unknown"));
-    }
-    setSaving(false);
-  };
+      if (!error && data) {
+        setProfile(data);
+        setTemplate(parsed);
+        setBillNumber(parsed.billNumber || randomBillNo(10));
+        setGenerated(false);
+      } else {
+        alert("প্রোফাইল সেভ সমস্যা: " + (error?.message || "Unknown"));
+      }
+      setSaving(false);
+    },
+    [user, supabase]
+  );
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
@@ -110,6 +122,11 @@ export default function DashboardPage() {
       alert("সঠিক Amount দিন");
       return;
     }
+    if (useRandomBill) {
+      setBillNumber(randomBillNo(10));
+    } else if (template?.billNumber) {
+      setBillNumber(template.billNumber);
+    }
     setGenerated(true);
   };
 
@@ -121,18 +138,32 @@ export default function DashboardPage() {
     );
   }
 
+  const activeBill =
+    useRandomBill || !template?.billNumber
+      ? billNumber || randomBillNo(10)
+      : template.billNumber;
+
   return (
     <div className="min-h-dvh flex flex-col">
-      {/* Header */}
       <header className="sticky top-0 z-20 glass-strong border-b border-white/10">
         <div className="max-w-2xl mx-auto px-4 h-14 sm:h-16 flex items-center justify-between">
           <div className="flex items-center gap-2.5">
             <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-gradient-to-br from-emerald-400 to-emerald-700 flex items-center justify-center">
               <QrCode className="w-4 h-4 sm:w-5 sm:h-5 text-white" />
             </div>
-            <span className="font-semibold text-white text-sm sm:text-base">
-              Bangla QR
-            </span>
+            <div className="flex flex-col">
+              <span className="font-semibold text-white text-sm sm:text-base leading-tight">
+                Bangla QR
+              </span>
+              <a
+                href="https://www.linkedin.com/in/RahatAhmedX"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-[10px] text-slate-500 hover:text-emerald-400 transition"
+              >
+                made by Rahat
+              </a>
+            </div>
           </div>
           <button
             onClick={handleLogout}
@@ -145,7 +176,6 @@ export default function DashboardPage() {
       </header>
 
       <main className="flex-1 max-w-2xl mx-auto w-full px-4 py-6 sm:py-10 space-y-6">
-        {/* Profile Card */}
         <section className="glass rounded-3xl p-5 sm:p-6">
           <div className="flex items-start justify-between gap-4">
             <div className="min-w-0 flex-1">
@@ -155,7 +185,6 @@ export default function DashboardPage() {
                   Profile
                 </span>
               </div>
-
               {profile ? (
                 <div className="space-y-1.5">
                   <h2 className="text-lg sm:text-xl font-semibold text-white truncate">
@@ -167,12 +196,11 @@ export default function DashboardPage() {
                   </p>
                 </div>
               ) : (
-                <p className="text-sm text-slate-400 leading-relaxed">
-                  প্রথমে আপনার Dynamic Bangla QR স্ক্যান করে প্রোফাইল তৈরি করুন
+                <p className="text-sm text-slate-400">
+                  প্রথমে Dynamic Bangla QR স্ক্যান/আপলোড করুন
                 </p>
               )}
             </div>
-
             <button
               onClick={() => setShowScanner(true)}
               disabled={saving}
@@ -183,14 +211,11 @@ export default function DashboardPage() {
               ) : (
                 <ScanLine className="w-4 h-4" />
               )}
-              <span className="hidden xs:inline sm:inline">
-                {profile ? "Update" : "Scan QR"}
-              </span>
+              <span>{profile ? "Update" : "Scan QR"}</span>
             </button>
           </div>
         </section>
 
-        {/* Generator */}
         {template ? (
           <section className="glass rounded-3xl p-5 sm:p-6 space-y-5">
             <div className="flex items-center gap-2 text-emerald-400">
@@ -223,11 +248,11 @@ export default function DashboardPage() {
               </div>
             </div>
 
-            {/* Quick amounts */}
             <div className="flex flex-wrap gap-2">
               {[50, 100, 200, 500, 1000].map((v) => (
                 <button
                   key={v}
+                  type="button"
                   onClick={() => {
                     setAmount(String(v));
                     setGenerated(false);
@@ -243,7 +268,60 @@ export default function DashboardPage() {
               ))}
             </div>
 
+            {/* Toggles */}
+            <div className="space-y-3 pt-1">
+              <label className="flex items-center justify-between gap-3 p-3 rounded-2xl bg-white/5 border border-white/10 cursor-pointer">
+                <div className="flex items-center gap-2.5">
+                  <EyeOff className="w-4 h-4 text-slate-400" />
+                  <div>
+                    <p className="text-sm text-white font-medium">Hide balance</p>
+                    <p className="text-[11px] text-slate-500">
+                      QR কার্ডে amount দেখাবে না
+                    </p>
+                  </div>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={hideBalance}
+                  onChange={(e) => {
+                    setHideBalance(e.target.checked);
+                    setGenerated(false);
+                  }}
+                  className="w-5 h-5 accent-emerald-500"
+                />
+              </label>
+
+              <label className="flex items-center justify-between gap-3 p-3 rounded-2xl bg-white/5 border border-white/10 cursor-pointer">
+                <div className="flex items-center gap-2.5">
+                  <Shuffle className="w-4 h-4 text-slate-400" />
+                  <div>
+                    <p className="text-sm text-white font-medium">
+                      Random Bill No
+                    </p>
+                    <p className="text-[11px] text-slate-500">
+                      {useRandomBill
+                        ? `এখন: ${billNumber || "—"}`
+                        : "অফ = আসল bill no"}
+                    </p>
+                  </div>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={useRandomBill}
+                  onChange={(e) => {
+                    setUseRandomBill(e.target.checked);
+                    if (e.target.checked) setBillNumber(randomBillNo(10));
+                    else if (template.billNumber)
+                      setBillNumber(template.billNumber);
+                    setGenerated(false);
+                  }}
+                  className="w-5 h-5 accent-emerald-500"
+                />
+              </label>
+            </div>
+
             <button
+              type="button"
               onClick={handleGenerate}
               className="btn-glow w-full py-4 rounded-2xl bg-gradient-to-r from-emerald-600 to-emerald-500 text-white font-semibold text-base"
             >
@@ -257,6 +335,10 @@ export default function DashboardPage() {
                   amount={parseFloat(amount)}
                   merchantName={template.merchantName}
                   merchantCity={template.merchantCity}
+                  billNumber={
+                    useRandomBill ? billNumber || randomBillNo(10) : activeBill
+                  }
+                  hideBalance={hideBalance}
                 />
               </div>
             )}
@@ -266,16 +348,18 @@ export default function DashboardPage() {
             <div className="w-16 h-16 mx-auto mb-4 rounded-2xl bg-white/5 flex items-center justify-center">
               <QrCode className="w-8 h-8 text-slate-500" />
             </div>
-            <p className="text-slate-400 text-sm max-w-xs mx-auto leading-relaxed">
-              উপরের <strong className="text-slate-300">Scan QR</strong> বাটনে
-              ক্লিক করে আপনার Dynamic QR স্ক্যান করুন
+            <p className="text-slate-400 text-sm max-w-xs mx-auto">
+              Scan বা Upload দিয়ে Dynamic QR যোগ করুন
             </p>
           </div>
         )}
       </main>
 
       {showScanner && (
-        <QRScanner onScan={handleScan} onClose={() => setShowScanner(false)} />
+        <QRScanner
+          onScan={handleScan}
+          onClose={() => setShowScanner(false)}
+        />
       )}
     </div>
   );
