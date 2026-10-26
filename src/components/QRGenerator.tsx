@@ -213,7 +213,7 @@ export default function QRGenerator({
         ctx.fillText("QR", lx + logoBox / 2, ly + 42);
 
         // Info card
-        let infoY = qrY + qrSize + 36;
+        const infoY = qrY + qrSize + 36;
         const cardX = 28;
         const cardW = W - 56;
 
