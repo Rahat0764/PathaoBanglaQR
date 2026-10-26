@@ -36,10 +36,8 @@ export default function HomePage() {
 
   return (
     <div className="min-h-dvh flex flex-col">
-      {/* Hero */}
       <main className="flex-1 flex flex-col items-center justify-center px-4 py-12 sm:py-20">
         <div className="w-full max-w-lg space-y-10 text-center">
-          {/* Logo */}
           <div className="flex justify-center">
             <div className="relative">
               <div className="absolute inset-0 bg-emerald-500/30 blur-2xl rounded-full scale-150" />
@@ -49,18 +47,15 @@ export default function HomePage() {
             </div>
           </div>
 
-          {/* Title */}
           <div className="space-y-3">
             <h1 className="text-3xl sm:text-4xl font-bold tracking-tight text-white">
               Bangla QR Generator
             </h1>
             <p className="text-slate-400 text-sm sm:text-base leading-relaxed max-w-sm mx-auto">
               নিজের Dynamic QR থেকে যেকোনো Amount-এর সুন্দর QR তৈরি করুন।
-              CRC অটো ক্যালকুলেট হয়।
             </p>
           </div>
 
-          {/* Features */}
           <div className="grid grid-cols-3 gap-3 sm:gap-4">
             {[
               { icon: Zap, label: "Instant" },
@@ -77,7 +72,6 @@ export default function HomePage() {
             ))}
           </div>
 
-          {/* Login Button */}
           <button
             onClick={handleGoogleLogin}
             className="btn-glow w-full flex items-center justify-center gap-3 px-6 py-4 rounded-2xl bg-white text-slate-900 font-semibold text-base shadow-xl shadow-black/20 hover:bg-slate-50 transition"
@@ -92,7 +86,15 @@ export default function HomePage() {
           </button>
 
           <p className="text-[11px] text-slate-500">
-            শুধুমাত্র নিজের Merchant QR ব্যবহার করুন
+            made by{" "}
+            <a
+              href="https://www.linkedin.com/in/RahatAhmedX"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-emerald-400 hover:underline"
+            >
+              Rahat
+            </a>
           </p>
         </div>
       </main>
